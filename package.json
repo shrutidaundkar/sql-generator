@@ -1,0 +1,36 @@
+{
+  "name": "sql-generator",
+  "version": "1.0.0",
+  "description": "Text-to-SQL: plain-English question -> validated SQL -> read-only results.",
+  "type": "module",
+  "scripts": {
+    "print-schema": "node scripts/print-schema.js",
+    "ask-sql": "node scripts/ask-sql.js",
+    "validate-sql": "node scripts/validate-sql.js",
+    "ask": "node scripts/ask.js",
+    "eval": "node eval/run.js",
+    "serve": "pm2 start src/api/server.js --name \"node-api-server\"",
+    "stop": "pm2 stop \"node-api-server\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shrutidaundkar/text-to-sql.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/shrutidaundkar/text-to-sql/issues"
+  },
+  "homepage": "https://github.com/shrutidaundkar/text-to-sql#readme",
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "node-sql-parser": "^5.4.0",
+    "openai": "^7.0.0"
+  },
+  "devDependencies": {
+    "pm2": "^7.0.3"
+  }
+}

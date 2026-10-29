@@ -1,0 +1,9 @@
+node_modules/
+.env
+# Future user uploads. data/chinook.sqlite is committed on purpose (Spec.md §12).
+data/uploads/
+# Autonomous-run working files, never committed.
+Build queue.md
+BUILD_QUEUE.md
+Build Log.md
+BUILD_LOG.md

@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask the database</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem;
+         color: #1b1b1b; line-height: 1.5; }
+  h1 { font-size: 1.4rem; margin-bottom: 1rem; }
+  fieldset { border: 1px solid #ddd; border-radius: 6px; padding: .5rem .75rem; margin: 0 0 .75rem; }
+  legend { font-size: .8rem; color: #666; padding: 0 .3rem; }
+  .models { display: flex; flex-wrap: wrap; gap: 1rem; }
+  .models label { display: flex; align-items: center; gap: .35rem; cursor: pointer; }
+  .dbs { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+  .tabs { display: flex; flex-wrap: wrap; gap: .25rem; border-bottom: 1px solid #ddd;
+          margin-bottom: .6rem; }
+  .tab { display: flex; align-items: center; gap: .3rem; padding: .35rem .6rem; font-size: .9rem;
+         border: 1px solid #ddd; border-bottom: none; border-radius: 5px 5px 0 0; background: #f4f4f4;
+         cursor: pointer; margin-bottom: -1px; }
+  .tab[aria-selected="true"] { background: #fff; border-bottom: 1px solid #fff; font-weight: 600; }
+  .tab .close { border: none; background: none; color: #999; font-size: 1rem; line-height: 1;
+                padding: 0 .1rem; cursor: pointer; }
+  .tab .close:hover { color: #c0392b; }
+  textarea { width: 100%; padding: .5rem; font: inherit; font-size: .9rem; border: 1px solid #bbb;
+             border-radius: 4px; resize: vertical; box-sizing: border-box; }
+  .fieldlabel { display: block; font-size: .8rem; color: #666; margin: .6rem 0 .2rem; }
+  form { display: flex; gap: .5rem; }
+  input { flex: 1; padding: .5rem; font: inherit; border: 1px solid #bbb; border-radius: 4px; }
+  input[type="file"] { flex: none; border: none; padding: 0; font-size: .85rem; }
+  button { padding: .5rem 1.1rem; font: inherit; border: 1px solid #1b1b1b; border-radius: 4px;
+           background: #1b1b1b; color: #fff; cursor: pointer; }
+  button[disabled] { background: #888; border-color: #888; cursor: progress; }
+  button.secondary { background: #fff; color: #1b1b1b; border-color: #bbb; padding: .4rem .7rem;
+                     font-size: .85rem; }
+  button.secondary[disabled] { color: #aaa; border-color: #ddd; cursor: not-allowed; }
+  .tables { font-size: .8rem; color: #666; margin: .5rem 0 0; word-break: break-word; }
+  .note { font-size: .8rem; color: #8a6d1f; background: #fdf8e6; border-left: 3px solid #d4b544;
+          padding: .4rem .6rem; border-radius: 3px; margin: .5rem 0 0; }
+  pre { background: #f4f4f4; padding: .75rem; overflow-x: auto; white-space: pre-wrap;
+        border-radius: 4px; font-size: .9rem; }
+  .answered { font-size: .8rem; color: #666; margin: .75rem 0 .25rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+  th, td { border: 1px solid #ddd; padding: .35rem .6rem; text-align: left; }
+  th { background: #f4f4f4; }
+  tbody tr:nth-child(even) { background: #fafafa; }
+  .message { padding: .75rem; background: #f7f7f7; border-left: 3px solid #888; border-radius: 3px; }
+  .error { background: #fdf3f2; border-left-color: #c0392b; }
+  .stage { display: block; font-size: .8rem; color: #666; margin-bottom: .2rem; }
+</style>
+</head>
+<body>
+<h1>Ask the database</h1>
+
+<fieldset>
+  <legend>Database</legend>
+  <div class="tabs" id="tabs" role="tablist"></div>
+  <div class="dbs">
+    <label>add a database: <input type="file" id="file" accept=".sqlite,.sqlite3,.db"></label>
+  </div>
+  <p class="tables" id="tables"></p>
+  <p class="note" id="dbnote" hidden>
+    No semantic notes exist for an uploaded database — the model sees its table and column names
+    only. Anything the schema does not spell out (what a status code means, whether a date is
+    stored as epoch milliseconds) it has to guess. Describe it below and the model will see it.
+  </p>
+  <label class="fieldlabel" for="dbnotes">
+    Notes about this database (optional) — sent with your question as background, never as
+    instructions
+  </label>
+  <textarea id="dbnotes" rows="3" maxlength="2000"
+    placeholder="e.g. status is 0 = active, 1 = suspended, 2 = closed; dates are stored as epoch milliseconds"></textarea>
+</fieldset>
+
+<fieldset>
+  <legend>Model</legend>
+  <div class="models">
+    <label><input type="radio" name="model" value="gemini" checked> Gemini Flash</label>
+    <label><input type="radio" name="model" value="groq"> Groq Llama 70B</label>
+    <label><input type="radio" name="model" value="local"> Local (Ollama)</label>
+  </div>
+</fieldset>
+
+<form id="ask">
+  <input id="question" placeholder="which genre has the most tracks?" autofocus>
+  <button id="submit">Ask</button>
+</form>
+
+<p class="answered" id="answered" hidden></p>
+<pre id="sql" hidden></pre>
+<div id="output"></div>
+
+<script>
+const LABELS = { gemini: 'Gemini Flash', groq: 'Groq Llama 70B', local: 'Local (Ollama)' };
+
+const form = document.getElementById('ask');
+const questionInput = document.getElementById('question');
+const submitButton = document.getElementById('submit');
+const answeredBox = document.getElementById('answered');
+const sqlBox = document.getElementById('sql');
+const output = document.getElementById('output');
+const tabStrip = document.getElementById('tabs');
+const fileInput = document.getElementById('file');
+const tablesBox = document.getElementById('tables');
+const dbNote = document.getElementById('dbnote');
+const notesInput = document.getElementById('dbnotes');
+
+let dbs = [];
+let activeId = 'demo';
+/** dbId -> that tab's note. Kept in the browser and sent with every question. */
+const notes = {};
+
+const activeDb = () => dbs.find((db) => db.dbId === activeId);
+
+notesInput.addEventListener('input', () => {
+  notes[activeId] = notesInput.value;
+});
+
+/** The table list, the warning and the note box all follow the active tab. */
+function showDbDetail() {
+  const db = activeDb();
+  if (!db) return;
+  tablesBox.textContent = `${db.tables.length} tables: ${db.tables.join(', ')}`;
+  dbNote.hidden = db.isDemo;
+  notesInput.value = notes[activeId] ?? '';
+}
+
+function selectTab(dbId) {
+  activeId = dbId;
+  renderTabs();
+  showDbDetail();
+}
+
+/** DOM calls again: a tab label is an uploaded filename, so it is user data. */
+function renderTabs() {
+  tabStrip.replaceChildren(
+    ...dbs.map((db) => {
+      const tab = document.createElement('div');
+      tab.className = 'tab';
+      tab.role = 'tab';
+      tab.ariaSelected = String(db.dbId === activeId);
+      tab.append(db.label);
+      tab.addEventListener('click', () => selectTab(db.dbId));
+
+      // The demo tab gets no close button at all, not a disabled one.
+      if (!db.isDemo) {
+        const close = document.createElement('button');
+        close.className = 'close';
+        close.type = 'button';
+        close.textContent = '×';
+        close.title = `Remove ${db.label} from the list (the file stays on disk)`;
+        close.addEventListener('click', async (event) => {
+          event.stopPropagation();
+          await fetch(`/dbs/${encodeURIComponent(db.dbId)}`, { method: 'DELETE' });
+          delete notes[db.dbId];
+          await loadDbs('demo');
+          output.replaceChildren(
+            message(`${db.label} removed from the list. The file is still on disk.`)
+          );
+        });
+        tab.append(close);
+      }
+      return tab;
+    })
+  );
+}
+
+async function loadDbs(select) {
+  const response = await fetch('/dbs');
+  ({ dbs } = await response.json());
+  const keep = select ?? activeId;
+  selectTab(dbs.some((db) => db.dbId === keep) ? keep : dbs[0]?.dbId);
+}
+
+// Sent as raw bytes. The name goes in the query string and is used only as a label.
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  output.replaceChildren(message(`uploading ${file.name}…`));
+  let result;
+  try {
+    const response = await fetch(`/upload?name=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: file,
+    });
+    result = await response.json();
+  } catch {
+    output.replaceChildren(message('Could not reach the server.', { error: true }));
+    return;
+  } finally {
+    fileInput.value = ''; // so the same file can be picked again after a failure
+  }
+
+  if (result.error) {
+    output.replaceChildren(message(result.error, { error: true, stage: 'upload failed' }));
+    return;
+  }
+  // An upload opens its own tab and switches to it.
+  await loadDbs(result.dbId);
+  output.replaceChildren(message(`${result.label} is ready — ${result.tables.length} tables.`));
+});
+
+/** Built with DOM calls, never innerHTML: row values are data, not markup. */
+function renderTable(columns, rows) {
+  const table = document.createElement('table');
+  const headRow = table.createTHead().insertRow();
+  for (const column of columns) {
+    const th = document.createElement('th');
+    th.textContent = column;
+    headRow.append(th);
+  }
+  const body = table.createTBody();
+  for (const row of rows) {
+    const tr = body.insertRow();
+    for (const column of columns) {
+      tr.insertCell().textContent = row[column] === null ? 'NULL' : row[column];
+    }
+  }
+  return table;
+}
+
+/** `stage` shows as a small label above the text, so a failure says where it stopped. */
+function message(text, { error = false, stage = '' } = {}) {
+  const div = document.createElement('div');
+  div.className = error ? 'message error' : 'message';
+  if (stage) {
+    const label = document.createElement('strong');
+    label.className = 'stage';
+    label.textContent = stage;
+    div.append(label);
+  }
+  div.append(document.createTextNode(text));
+  return div;
+}
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const question = questionInput.value.trim();
+  if (!question) return;
+  const model = document.querySelector('input[name="model"]:checked').value;
+
+  sqlBox.hidden = true;
+  answeredBox.hidden = true;
+  submitButton.disabled = true;
+  output.replaceChildren(message(`asking ${LABELS[model]}…`));
+
+  let result;
+  try {
+    const response = await fetch('/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ question, model, dbId: activeId, note: notes[activeId] ?? '' }),
+    });
+    result = await response.json();
+  } catch {
+    output.replaceChildren(message('Could not reach the server.', { error: true }));
+    return;
+  } finally {
+    submitButton.disabled = false;
+  }
+
+  // The model that ran is not always the one requested, so report what the server says.
+  if (result.model) {
+    answeredBox.textContent = `answered by ${LABELS[result.model] ?? result.model}`;
+    answeredBox.hidden = false;
+  }
+
+  if (result.sql) {
+    sqlBox.textContent = result.sql;
+    sqlBox.hidden = false;
+  }
+
+  if (result.ok) {
+    const parts = [renderTable(result.columns, result.rows)];
+    if (result.rows.length === 0) parts.push(message('No rows matched.'));
+    output.replaceChildren(...parts);
+  } else if (result.stage === 'refused') {
+    output.replaceChildren(message(result.error, { stage: "can't answer this from the schema" }));
+  } else {
+    output.replaceChildren(
+      message(result.error ?? 'Unknown error.', { error: true, stage: `failed at: ${result.stage}` })
+    );
+  }
+});
+
+loadDbs('demo');
+</script>
+</body>
+</html>
